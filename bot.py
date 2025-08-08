@@ -1,4 +1,4 @@
-# Pain Literature Weekly Bot with 5-Line Digest using ChatGPT
+# Pain Literature Weekly Bot with Debug Logging and GPT Summary
 
 import openai
 import os, datetime, html, smtplib, ssl, requests
@@ -76,20 +76,23 @@ def efetch_abstracts(pmids):
         abstract = " ".join([part.text or "" for part in abstract_parts])
         abstracts[pmid] = abstract
     return abstracts
-print("Abstract preview:", abstract[:300])
 
 def get_digest(text):
     if not text:
+        print("No abstract to summarise.")
         return "No abstract available."
     prompt = f"Summarise this medical abstract in 5 concise lines:\n\n{text}"
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",  # or "gpt-3.5-turbo"
+            model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        return response.choices[0].message.content.strip()
-    except Exception:
+        summary = response.choices[0].message.content.strip()
+        print("GPT Summary:", summary[:300])
+        return summary
+    except Exception as e:
+        print("OpenAI Error:", str(e))
         return "Summary not available."
 
 def build_html(items):
@@ -125,6 +128,10 @@ if __name__ == "__main__":
     for a in articles:
         pmid = a.get("pmid")
         abstract = abstracts.get(pmid, "")
-        a["digest"] = get_digest(abstract)
+        print(f"\n---\nArticle: {a['title']}")
+        print("Abstract preview:", abstract[:300] if abstract else "No abstract")
+        digest = get_digest(abstract)
+        print("Generated summary:", digest[:300])
+        a["digest"] = digest
     html_email = build_html(articles)
     send_email(html_email)
