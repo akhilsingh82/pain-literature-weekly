@@ -1,6 +1,6 @@
-# Pain Literature Weekly Bot with Debug Logging and GPT Summary
+# Pain Literature Weekly Bot with OpenAI >= 1.0 API Support and Debug Logging
 
-import openai
+from openai import OpenAI
 import os, datetime, html, smtplib, ssl, requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from xml.etree import ElementTree as ET
 
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 JOURNALS = [
     "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports", "Pain Physician", "Regional Anesthesia and Pain Medicine",
@@ -83,7 +83,7 @@ def get_digest(text):
         return "No abstract available."
     prompt = f"Summarise this medical abstract in 5 concise lines:\n\n{text}"
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
