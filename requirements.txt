@@ -1,0 +1,4 @@
+biopython
+requests
+python-dotenv
+jinja2
