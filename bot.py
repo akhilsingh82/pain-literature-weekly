@@ -39,22 +39,6 @@ def esearch(term):
     r.raise_for_status()
     return r.json().get("esearchresult", {}).get("idlist", [])
 
-def efetch_abstracts(pmids):
-    base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    params = {"db": "pubmed", "retmode": "xml", "id": ",".join(pmids)}
-    r = requests.get(base, params=params, timeout=30)
-    r.raise_for_status()
-    root = ET.fromstring(r.content)
-    abstracts = {}
-    for article in root.findall(".//PubmedArticle"):
-        pmid = article.findtext(".//PMID")
-        abstract = article.findtext(".//AbstractText")
-        abstracts[pmid] = abstract
-    return abstracts
-    abstracts = efetch_abstracts(ids)
-print("Sample abstract:", abstracts.get(ids[0], "None found"))
-
-
 def esummary(pmids):
     if not pmids: return []
     base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
@@ -74,6 +58,24 @@ def esummary(pmids):
             "doi": next((x.get("value") for x in v.get("articleids", []) if x.get("idtype") == "doi"), None)
         })
     return sorted(items, key=lambda x: x["pubdate"], reverse=True)
+
+def efetch_abstracts(pmids):
+    base = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    params = {
+        "db": "pubmed",
+        "retmode": "xml",
+        "id": ",".join(pmids)
+    }
+    r = requests.get(base, params=params, timeout=30)
+    r.raise_for_status()
+    root = ET.fromstring(r.content)
+    abstracts = {}
+    for article in root.findall(".//PubmedArticle"):
+        pmid = article.findtext(".//PMID")
+        abstract_parts = article.findall(".//AbstractText")
+        abstract = " ".join([part.text or "" for part in abstract_parts])
+        abstracts[pmid] = abstract
+    return abstracts
 
 def get_digest(text):
     if not text:
@@ -121,6 +123,7 @@ if __name__ == "__main__":
     abstracts = efetch_abstracts(ids)
     for a in articles:
         pmid = a.get("pmid")
-        a["digest"] = get_digest(abstracts.get(pmid, ""))
+        abstract = abstracts.get(pmid, "")
+        a["digest"] = get_digest(abstract)
     html_email = build_html(articles)
     send_email(html_email)
