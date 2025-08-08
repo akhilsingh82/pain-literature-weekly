@@ -9,10 +9,40 @@ from dotenv import load_dotenv
 load_dotenv()
 
 JOURNALS = [
-    "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports"
-]
+    "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports", "Pain Physician", "Regional Anesthesia and Pain Medicine",
+    "International Journal of Pain", "Journal of Pain & Relief", "Interventional Pain Medicine", 
+    "Cephalgia Rep", "Can J Pain", "BJA Educ", "Br J Pain", "Pain Management"]
 KEYWORDS = [
-    "chronic pain", "neuropathic pain", "low back pain", "radiofrequency ablation"
+    "Pain",
+    "Pain, Acute",
+    "Pain, Chronic",
+    "Pain Management",
+    "Pain Measurement",
+    "Referred Pain",
+    "Intractable Pain",
+    "Myofascial Pain Syndromes",
+    "Neuropathic Pain",
+    "Nociceptive Pain",
+    "Visceral Pain",
+    "Somatic Pain",
+    "Central Pain",
+    "Neuralgia","Pain Management",
+    "Pain Measurement",
+    "Analgesia",
+    "Analgesics, Non-Narcotic",
+    "Analgesics, Opioid",
+    "Nerve Block",
+    "Epidural Analgesia",
+    "Spinal Cord Stimulation",
+    "Neuromodulation",
+    "Local Anesthesia",
+    "Anesthesia, Local",
+    "Anesthesia, Epidural",
+    "Injections",
+    "Acupuncture Therapy",
+    "Physical Therapy Modalities",
+    "Surgical Procedures, Operative",
+    "Therapeutics"
 ]
 
 # Build PubMed query
