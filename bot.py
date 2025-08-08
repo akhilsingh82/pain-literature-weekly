@@ -60,33 +60,24 @@ def fetch_title_and_abstract(pmid):
         return "Title not available", ""
 
 def summarize_abstract(abstract):
-    if not abstract.strip():
-        return "No abstract available."
+    return "This is a placeholder summary."
+
 
     messages = [
         {"role": "system", "content": "You are an expert summariser for scientific medical literature. Summarise this abstract in plain language in 2-3 sentences."},
         {"role": "user", "content": abstract}
     ]
+try:
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        max_tokens=300,
+        temperature=0.3
+    )
+except OpenAIError as e:
+    print("GPT-3.5 failed:", e)
+    return "Summary not available."
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=messages,
-            max_tokens=300,
-            temperature=0.3
-        )
-    except OpenAIError as e:
-        print("GPT-4 failed, trying gpt-3.5-turbo:", e)
-        try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=messages,
-                max_tokens=300,
-                temperature=0.3
-            )
-        except OpenAIError as e2:
-            print("GPT-3.5 also failed:", e2)
-            return "Summary not available."
 
     return response.choices[0].message.content.strip()
 
