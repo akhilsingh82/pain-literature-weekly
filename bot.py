@@ -76,6 +76,7 @@ def efetch_abstracts(pmids):
         abstract = " ".join([part.text or "" for part in abstract_parts])
         abstracts[pmid] = abstract
     return abstracts
+print("Abstract preview:", abstract[:300])
 
 def get_digest(text):
     if not text:
