@@ -9,6 +9,7 @@ from xml.etree import ElementTree as ET
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+print("ENV KEY starts with:", os.getenv("OPENAI_API_KEY")[:5])
 
 JOURNALS = [
     "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports", "Pain Physician", "Regional Anesthesia and Pain Medicine",
