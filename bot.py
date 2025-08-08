@@ -51,6 +51,9 @@ def efetch_abstracts(pmids):
         abstract = article.findtext(".//AbstractText")
         abstracts[pmid] = abstract
     return abstracts
+    abstracts = efetch_abstracts(ids)
+print("Sample abstract:", abstracts.get(ids[0], "None found"))
+
 
 def esummary(pmids):
     if not pmids: return []
