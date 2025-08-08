@@ -1,4 +1,5 @@
 biopython
 requests
 python-dotenv
+openai
 jinja2
