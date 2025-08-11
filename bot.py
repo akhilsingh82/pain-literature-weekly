@@ -1,130 +1,221 @@
-import os
-import smtplib
-from email.message import EmailMessage
+import os, datetime, html, smtplib, ssl, requests
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
-from openai import OpenAI, OpenAIError
-from Bio import Entrez
+from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
-# Load environment variables
+# -------------------
+# Config
+# -------------------
 load_dotenv()
 
-# Email configuration
-EMAIL_FROM = os.getenv("EMAIL_FROM")
-EMAIL_TO = os.getenv("EMAIL_TO")
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT"))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-
-# OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# PubMed email
-Entrez.email = EMAIL_FROM
-
-# Journals to include
 JOURNALS = [
-    "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports", "Pain Physician",
-    "Regional Anesthesia and Pain Medicine", "International Journal of Pain", "Journal of Pain & Relief",
-    "Interventional Pain Medicine", "Cephalalgia Reports", "Canadian Journal of Pain",
-    "BJA Education", "British Journal of Pain", "Pain Management"
+    "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports"
 ]
-
-# Keywords to include
 KEYWORDS = [
-    "chronic pain", "neuropathic pain", "low back pain", "interventional pain", "opioid alternatives",
-    "radiofrequency ablation", "nerve block", "neuromodulation", "analgesia", "spinal cord stimulation"
+    "neuropathic", "interventional", "\"nerve block\"", "\"opioid alternative*\"",
+    "ketamine", "\"dorsal root ganglion\"", "\"spinal cord stimulation\""
 ]
+ADD_HUMANS_FILTER = False  # set True if you want to bias to clinical human studies
 
-def build_pubmed_query():
-    journal_query = " OR ".join([f'"{j}"[TA]' for j in JOURNALS])
-    keyword_query = " OR ".join(KEYWORDS)
-    return f"({journal_query}) AND ({keyword_query}) AND 2025[dp]"
+EMAIL_TO = os.environ["EMAIL_TO"]
+EMAIL_FROM = os.environ["EMAIL_FROM"]
+SMTP_HOST = os.environ["SMTP_HOST"]
+SMTP_PORT = int(os.environ["SMTP_PORT"])
+SMTP_USER = os.environ["SMTP_USER"]
+SMTP_PASS = os.environ["SMTP_PASS"]
 
-def search_pubmed(query, max_results=10):
-    handle = Entrez.esearch(db="pubmed", term=query, sort="pub+date", retmax=max_results)
-    record = Entrez.read(handle)
-    return record["IdList"]
+NCBI_TOOL = os.environ.get("NCBI_TOOL", "pain-weekly-bot")
+NCBI_EMAIL = os.environ.get("NCBI_EMAIL", "")
+NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "")
 
-def fetch_title_and_abstract(pmid):
-    try:
-        handle = Entrez.efetch(db="pubmed", id=pmid, rettype="xml", retmode="xml")
-        record = Entrez.read(handle)
-        article = record["PubmedArticle"][0]["MedlineCitation"]["Article"]
-        title = article["ArticleTitle"]
-        abstract_parts = article.get("Abstract", {}).get("AbstractText", [])
-        abstract = " ".join(abstract_parts) if abstract_parts else ""
-        return title, abstract
-    except Exception as e:
-        print(f"Error fetching data for PMID {pmid}: {e}")
-        return "Title not available", ""
+IST = ZoneInfo("Asia/Kolkata")
 
-def summarize_abstract(abstract):
-    if not abstract.strip():
-        return "No abstract available."
+# -------------------
+# HTTP Session with retries
+# -------------------
+def make_session():
+    s = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"])
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retries))
+    s.mount("http://", HTTPAdapter(max_retries=retries))
+    return s
 
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert summariser for scientific medical literature. Summarise this abstract in plain language in 2-3 sentences."
-        },
-        {
-            "role": "user",
-            "content": abstract
-        }
-    ]
+SESSION = make_session()
 
-    try:
-        # Only use GPT-3.5 Turbo to avoid errors
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=300,
-            temperature=0.3
+# -------------------
+# Query construction
+# -------------------
+def pubmed_query(journals, keywords, humans=False):
+    j = " OR ".join([f"\"{x}\"[ta]" for x in journals])
+    k = " OR ".join(keywords) if keywords else ""
+    core = f"(({j}))" if j else ""
+    if k:
+        core = f"{core} AND ({k})"
+    if humans:
+        core = f"{core} AND (humans[MeSH Terms])"
+    return core.strip()
+
+def last_7d_window_ist(today_ist=None):
+    # Deterministic 7-day window in IST using ENTRY date (edat)
+    if today_ist is None:
+        today_ist = datetime.datetime.now(IST).date()
+    start = today_ist - datetime.timedelta(days=7)
+    # PubMed E-Utilities accept YYYY/MM/DD format for mindate/maxdate
+    mindate = start.strftime("%Y/%m/%d")
+    maxdate = today_ist.strftime("%Y/%m/%d")
+    return mindate, maxdate
+
+# -------------------
+# PubMed helpers
+# -------------------
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+def eutils_params(extra=None):
+    p = {
+        "tool": NCBI_TOOL,
+        "email": NCBI_EMAIL,
+    }
+    if NCBI_API_KEY:
+        p["api_key"] = NCBI_API_KEY
+    if extra:
+        p.update(extra)
+    return p
+
+def esearch(term, mindate, maxdate):
+    params = eutils_params({
+        "db": "pubmed",
+        "term": term,
+        "retmode": "json",
+        "retmax": 300,
+        "datetype": "edat",
+        "mindate": mindate,
+        "maxdate": maxdate
+    })
+    r = SESSION.get(f"{EUTILS}/esearch.fcgi", params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    return data.get("esearchresult", {}).get("idlist", [])
+
+def esummary(pmids):
+    if not pmids:
+        return []
+    params = eutils_params({
+        "db": "pubmed",
+        "retmode": "json",
+        "id": ",".join(pmids)
+    })
+    r = SESSION.get(f"{EUTILS}/esummary.fcgi", params=params, timeout=30)
+    r.raise_for_status()
+    result = r.json().get("result", {})
+    items = []
+    for pid, v in result.items():
+        if pid == "uids":
+            continue
+        title = (v.get("title") or "").strip()
+        journal = v.get("fulljournalname") or v.get("source") or ""
+        # Prefer sortpubdate (YYYY/MM/DD) if available; fall back to pubdate string
+        sortdate = v.get("sortpubdate") or v.get("pubdate") or ""
+        doi = ""
+        for idv in v.get("articleids", []):
+            if idv.get("idtype") == "doi":
+                doi = idv.get("value")
+                break
+        url = f"https://pubmed.ncbi.nlm.nih.gov/{pid}/"
+        items.append({
+            "pmid": pid,
+            "title": title,
+            "journal": journal,
+            "date": sortdate,
+            "doi": doi,
+            "url": url
+        })
+    # Deduplicate primarily by DOI, else PMID
+    dedup = {}
+    for it in items:
+        key = ("doi", it["doi"].lower()) if it["doi"] else ("pmid", it["pmid"])
+        if key not in dedup:
+            dedup[key] = it
+    items = list(dedup.values())
+
+    def parse_sortdate(s):
+        # Handles "2025/08/05" or other textual forms; return tuple for sorting
+        try:
+            return datetime.datetime.strptime(s, "%Y/%m/%d")
+        except Exception:
+            return datetime.datetime.min
+
+    items.sort(key=lambda x: parse_sortdate(x["date"]), reverse=True)
+    return items
+
+# -------------------
+# Email formatting
+# -------------------
+def build_html(items, mindate, maxdate):
+    if not items:
+        return f"<p>No new items between {mindate} and {maxdate}.</p>"
+    rows = []
+    for it in items:
+        title = html.escape(it["title"])
+        j = html.escape(it["journal"])
+        date = html.escape(it["date"])
+        doi_link = f' | DOI: <a href="https://doi.org/{it["doi"]}">{html.escape(it["doi"])}</a>' if it["doi"] else ""
+        rows.append(
+            f'<li><a href="{it["url"]}">{title}</a>'
+            f' — <em>{j}</em> ({date}){doi_link}</li>'
         )
-        return response.choices[0].message.content.strip()
+    return f"""
+    <h2>Pain Literature Weekly</h2>
+    <p>Coverage (EDAT): {mindate} to {maxdate}; journals: {', '.join(JOURNALS)}</p>
+    <ol>
+    {''.join(rows)}
+    </ol>
+    """
 
-    except openai.OpenAIError as e:
-        print("GPT-3.5 failed:", e)
-        return "Summary not available."
-
-    return response.choices[0].message.content.strip()
-
-def format_email_content(articles):
-    lines = []
-    for title, abstract, summary in articles:
-        lines.append(
-            f"📰 Title: {title}\n"
-            f"📄 Abstract Preview: {abstract[:400] + '...' if len(abstract) > 400 else abstract}\n"
-            f"📝 Summary: {summary}\n"
-            f"{'-'*60}\n"
-        )
+def build_text(items, mindate, maxdate):
+    if not items:
+        return f"No new items between {mindate} and {maxdate}."
+    lines = [f"Pain Literature Weekly", f"Coverage (EDAT): {mindate} to {maxdate}"]
+    for it in items:
+        doi_part = f" | DOI: https://doi.org/{it['doi']}" if it["doi"] else ""
+        lines.append(f"- {it['title']} — {it['journal']} ({it['date']}) {it['url']}{doi_part}")
     return "\n".join(lines)
 
-def send_email(subject, body):
-    msg = EmailMessage()
+def send_email(html_body, text_body, subject):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    msg["Subject"] = subject
-    msg.set_content(body)
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
 
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(context=ctx)
+        s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
 
-def main():
-    query = build_pubmed_query()
-    pmids = search_pubmed(query, max_results=10)
-
-    articles = []
-    for pmid in pmids:
-        title, abstract = fetch_title_and_abstract(pmid)
-        summary = summarize_abstract(abstract)
-        articles.append((title, abstract, summary))
-
-    email_body = format_email_content(articles)
-    send_email(subject="🧠 Weekly Chronic Pain Research Digest", body=email_body)
-    print("✅ Email sent successfully.")
-
+# -------------------
+# Main
+# -------------------
 if __name__ == "__main__":
-    main()
+    today_ist = datetime.datetime.now(IST).date()
+    mindate, maxdate = last_7d_window_ist(today_ist)
+
+    term = pubmed_query(JOURNALS, KEYWORDS, humans=ADD_HUMANS_FILTER)
+    pmids = esearch(term, mindate, maxdate)
+    items = esummary(pmids)
+
+    html_body = build_html(items, mindate, maxdate)
+    text_body = build_text(items, mindate, maxdate)
+    subject = f"Pain Literature Weekly — {mindate} to {maxdate}"
+
+    send_email(html_body, text_body, subject)
