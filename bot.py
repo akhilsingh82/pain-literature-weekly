@@ -3,7 +3,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
-from urllib.parse import urlencode
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
@@ -12,53 +11,47 @@ from requests.adapters import HTTPAdapter
 # -------------------
 load_dotenv()
 
+# Use MEDLINE/NLM abbreviations with [ta]
 JOURNALS = [
-    "Pain",
-    "Pain Physician",
-    "Pain Medicine",
-    "Regional Anesthesia & Pain Medicine",
-    "Journal of Pain", "Interventional Pain Medicine",
-    "Cephalalgia",
-    "Journal of Headache and Pain",
-    "Pain Reports",
-    "Journal of Pain Research",
-    "European Journal of Pain",
-    "Pain and Therapy",
-    "Scandinavian Journal of Pain",
-    "Molecular Pain",
-    "Pain Practice",
-    "Pain Research and Management"
+    "Pain[ta]",
+    "Pain Physician[ta]",
+    "Pain Med[ta]",
+    "Reg Anesth Pain Med[ta]",
+    "J Pain[ta]",
+    "Interv Pain Med[ta]",
+    "Cephalalgia[ta]",
+    "J Headache Pain[ta]",
+    "Pain Rep[ta]",
+    "J Pain Res[ta]",
+    "Eur J Pain[ta]",
+    "Pain Ther[ta]",
+    "Scand J Pain[ta]",
+    "Mol Pain[ta]",
+    "Pain Pract[ta]",
+    "Pain Res Manag[ta]"
 ]
 
-]
 KEYWORDS = [
-    # List of keywords related to pain procedures
-pain_procedure_keywords = [
     "Pain Management",
     "Pain Measurement",
     "Analgesia",
-    "Analgesics, Non-Narcotic",
-    "Analgesics, Opioid",
-    "Nerve Block",
-    "Epidural Analgesia",
-    "Spinal Cord Stimulation",
+    "\"Analgesics, Non-Narcotic\"",
+    "\"Analgesics, Opioid\"",
+    "\"Nerve Block\"",
+    "\"Epidural Analgesia\"",
+    "\"Spinal Cord Stimulation\"",
     "Neuromodulation",
-    "Local Anesthesia",
-    "Anesthesia, Local",
-    "Anesthesia, Epidural",
+    "\"Local Anesthesia\"",
+    "\"Anesthesia, Local\"",
+    "\"Anesthesia, Epidural\"",
     "Injections",
-    "Acupuncture Therapy",
-    "Physical Therapy Modalities",
-    "Surgical Procedures, Operative",
+    "\"Acupuncture Therapy\"",
+    "\"Physical Therapy Modalities\"",
+    "\"Surgical Procedures, Operative\"",
     "Therapeutics"
 ]
 
-# Print each keyword
-for keyword in pain_procedure_keywords:
-    print(keyword)
-
-]
-ADD_HUMANS_FILTER = False  # set True if you want to bias to clinical human studies
+ADD_HUMANS_FILTER = False  # set True to bias toward human studies
 
 EMAIL_TO = os.environ["EMAIL_TO"]
 EMAIL_FROM = os.environ["EMAIL_FROM"]
@@ -94,9 +87,10 @@ SESSION = make_session()
 # Query construction
 # -------------------
 def pubmed_query(journals, keywords, humans=False):
-    j = " OR ".join([f"\"{x}\"[ta]" for x in journals])
+    # journals already include [ta]
+    j = " OR ".join(journals)
     k = " OR ".join(keywords) if keywords else ""
-    core = f"(({j}))" if j else ""
+    core = f"({j})" if j else ""
     if k:
         core = f"{core} AND ({k})"
     if humans:
@@ -108,7 +102,7 @@ def last_7d_window_ist(today_ist=None):
     if today_ist is None:
         today_ist = datetime.datetime.now(IST).date()
     start = today_ist - datetime.timedelta(days=7)
-    # PubMed E-Utilities accept YYYY/MM/DD format for mindate/maxdate
+    # PubMed E-Utilities accept YYYY/MM/DD for mindate/maxdate
     mindate = start.strftime("%Y/%m/%d")
     maxdate = today_ist.strftime("%Y/%m/%d")
     return mindate, maxdate
@@ -119,10 +113,7 @@ def last_7d_window_ist(today_ist=None):
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 def eutils_params(extra=None):
-    p = {
-        "tool": NCBI_TOOL,
-        "email": NCBI_EMAIL,
-    }
+    p = {"tool": NCBI_TOOL, "email": NCBI_EMAIL}
     if NCBI_API_KEY:
         p["api_key"] = NCBI_API_KEY
     if extra:
@@ -161,7 +152,6 @@ def esummary(pmids):
             continue
         title = (v.get("title") or "").strip()
         journal = v.get("fulljournalname") or v.get("source") or ""
-        # Prefer sortpubdate (YYYY/MM/DD) if available; fall back to pubdate string
         sortdate = v.get("sortpubdate") or v.get("pubdate") or ""
         doi = ""
         for idv in v.get("articleids", []):
@@ -186,7 +176,6 @@ def esummary(pmids):
     items = list(dedup.values())
 
     def parse_sortdate(s):
-        # Handles "2025/08/05" or other textual forms; return tuple for sorting
         try:
             return datetime.datetime.strptime(s, "%Y/%m/%d")
         except Exception:
@@ -206,14 +195,15 @@ def build_html(items, mindate, maxdate):
         title = html.escape(it["title"])
         j = html.escape(it["journal"])
         date = html.escape(it["date"])
-        doi_link = f' | DOI: <a href="https://doi.org/{it["doi"]}">{html.escape(it["doi"])}</a>' if it["doi"] else ""
+        doi = it["doi"]
+        doi_link = f' | DOI: <a href="https://doi.org/{doi}">{html.escape(doi)}</a>' if doi else ""
         rows.append(
             f'<li><a href="{it["url"]}">{title}</a>'
             f' — <em>{j}</em> ({date}){doi_link}</li>'
         )
     return f"""
     <h2>Pain Literature Weekly</h2>
-    <p>Coverage (EDAT): {mindate} to {maxdate}; journals: {', '.join(JOURNALS)}</p>
+    <p>Coverage (EDAT): {mindate} to {maxdate}; journals: {', '.join([j.replace('[ta]','') for j in JOURNALS])}</p>
     <ol>
     {''.join(rows)}
     </ol>
