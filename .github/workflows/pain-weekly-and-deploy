@@ -2,16 +2,13 @@ name: pain-weekly-and-deploy
 
 on:
   schedule:
-    # Mondays 07:00 UTC ≈ 12:30 IST — tweak as you like
-    - cron: "0 7 * * MON"
+    - cron: "0 7 * * MON"   # Mondays 12:30 IST
   workflow_dispatch:
 
 permissions:
-  contents: write  # needed to push to gh-pages
-
-concurrency:
-  group: pain-weekly
-  cancel-in-progress: false
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   run-and-deploy:
@@ -20,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,8 +26,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install deps
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run bot (generates abstracts.html + sends email)
         env:
@@ -44,59 +42,21 @@ jobs:
           ABSTRACTS_BASE_URL: ${{ secrets.ABSTRACTS_BASE_URL }}
         run: |
           python bot.py
-          test -f abstracts.html || (echo "abstracts.html not found; bot may have skipped generation" && exit 1)
-                - name: Show working tree (debug)
+          test -f abstracts.html || (echo "abstracts.html missing" && exit 1)
+
+      # Package files for Pages
+      - name: Prepare publish dir
         run: |
-          ls -la
-          echo "abstracts.html size:"; wc -c abstracts.html
+          mkdir -p public
+          cp abstracts.html public/index.html
+          touch public/.nojekyll
+          echo "# Pain Literature Abstracts" > public/README.md
+          ls -la public
 
-      - name: Publish abstracts.html to gh-pages
-        permissions:
-          contents: write
-        run: |
-          git fetch origin
-          # Create gh-pages if missing
-          if ! git ls-remote --exit-code --heads origin gh-pages; then
-            git checkout --orphan gh-pages
-            rm -rf .
-          else
-            git checkout gh-pages
-            git rm -rf . || true
-          fi
-
-          cp abstracts.html index.html
-          touch .nojekyll
-          echo "# Pain Literature Abstracts" > README.md
-
-          git add index.html .nojekyll README.md
-          git -c user.name="github-actions[bot]" \
-              -c user.email="github-actions[bot]@users.noreply.github.com" \
-              commit -m "Update abstracts page ($(date -u +%F))" || echo "No changes to commit"
-          git push -f origin gh-pages
-
-      - name: Prepare gh-pages worktree
-        run: |
-          git fetch origin
-          # Create gh-pages if it doesn't exist
-          if ! git ls-remote --exit-code --heads origin gh-pages; then
-            git checkout --orphan gh-pages
-            rm -rf .
-            echo "<html><body>Initializing…</body></html>" > index.html
-            git add index.html
-            git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" commit -m "Initialize gh-pages"
-            git push -f origin gh-pages
-          fi
-
-      - name: Publish abstracts.html to gh-pages
-        run: |
-          # Switch to a clean tree of gh-pages
-          git checkout gh-pages
-          git rm -rf . || true
-          cp abstracts.html index.html
-          # Ensure Pages serves without Jekyll processing
-          touch .nojekyll
-          # Optional: simple landing README
-          echo "# Pain Literature Abstracts" > README.md
-          git add index.html .nojekyll README.md
-          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" commit -m "Update abstracts page"
-          git push -f origin gh-pages
+      # Publish to gh-pages in one step
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
