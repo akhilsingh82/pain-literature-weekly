@@ -1,8 +1,8 @@
+# .github/workflows/pain-weekly.yml
 name: pain-weekly
 on:
   schedule:
-    # Mondays 07:00 UTC = 12:30 IST (adjust as needed)
-    - cron: "0 7 * * MON"
+    - cron: "0 7 * * MON"   # Mondays 12:30 IST
   workflow_dispatch:
 
 jobs:
@@ -14,15 +14,16 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - run: python bot.py
+      - name: Run bot (builds abstracts.html + sends email)
+        run: python bot.py
         env:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          SMTP_HOST: smtp.gmail.com
-          SMTP_PORT: "587"
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           NCBI_TOOL: pain-weekly-bot
           NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
-          # Optional:
-          # NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          ABSTRACTS_BASE_URL: ${{ secrets.ABSTRACTS_BASE_URL }}
+  # (Optional) add your deploy-to-Pages job here or use the separate deploy workflow I shared earlier
