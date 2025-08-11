@@ -13,11 +13,50 @@ from requests.adapters import HTTPAdapter
 load_dotenv()
 
 JOURNALS = [
-    "Pain", "Journal of Pain", "Neurology", "Pain Medicine", "PAIN Reports"
+    "Pain",
+    "Pain Physician",
+    "Pain Medicine",
+    "Regional Anesthesia & Pain Medicine",
+    "Journal of Pain", "Interventional Pain Medicine",
+    "Cephalalgia",
+    "Journal of Headache and Pain",
+    "Pain Reports",
+    "Journal of Pain Research",
+    "European Journal of Pain",
+    "Pain and Therapy",
+    "Scandinavian Journal of Pain",
+    "Molecular Pain",
+    "Pain Practice",
+    "Pain Research and Management"
+]
+
 ]
 KEYWORDS = [
-    "neuropathic", "interventional", "\"nerve block\"", "\"opioid alternative*\"",
-    "ketamine", "\"dorsal root ganglion\"", "\"spinal cord stimulation\""
+    # List of keywords related to pain procedures
+pain_procedure_keywords = [
+    "Pain Management",
+    "Pain Measurement",
+    "Analgesia",
+    "Analgesics, Non-Narcotic",
+    "Analgesics, Opioid",
+    "Nerve Block",
+    "Epidural Analgesia",
+    "Spinal Cord Stimulation",
+    "Neuromodulation",
+    "Local Anesthesia",
+    "Anesthesia, Local",
+    "Anesthesia, Epidural",
+    "Injections",
+    "Acupuncture Therapy",
+    "Physical Therapy Modalities",
+    "Surgical Procedures, Operative",
+    "Therapeutics"
+]
+
+# Print each keyword
+for keyword in pain_procedure_keywords:
+    print(keyword)
+
 ]
 ADD_HUMANS_FILTER = False  # set True if you want to bias to clinical human studies
 
