@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os, datetime, html, smtplib, ssl, requests, re
-from email.mime_text import MIMEText
+from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
