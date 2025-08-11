@@ -45,6 +45,34 @@ jobs:
         run: |
           python bot.py
           test -f abstracts.html || (echo "abstracts.html not found; bot may have skipped generation" && exit 1)
+                - name: Show working tree (debug)
+        run: |
+          ls -la
+          echo "abstracts.html size:"; wc -c abstracts.html
+
+      - name: Publish abstracts.html to gh-pages
+        permissions:
+          contents: write
+        run: |
+          git fetch origin
+          # Create gh-pages if missing
+          if ! git ls-remote --exit-code --heads origin gh-pages; then
+            git checkout --orphan gh-pages
+            rm -rf .
+          else
+            git checkout gh-pages
+            git rm -rf . || true
+          fi
+
+          cp abstracts.html index.html
+          touch .nojekyll
+          echo "# Pain Literature Abstracts" > README.md
+
+          git add index.html .nojekyll README.md
+          git -c user.name="github-actions[bot]" \
+              -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -m "Update abstracts page ($(date -u +%F))" || echo "No changes to commit"
+          git push -f origin gh-pages
 
       - name: Prepare gh-pages worktree
         run: |
