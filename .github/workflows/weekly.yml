@@ -1,8 +1,8 @@
-name: Pain Weekly Bot
-
+name: pain-weekly
 on:
   schedule:
-    - cron: "0 6 * * MON"  # Every Monday 11:30 AM IST
+    # Mondays 07:00 UTC = 12:30 IST (adjust as needed)
+    - cron: "0 7 * * MON"
   workflow_dispatch:
 
 jobs:
@@ -16,10 +16,13 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python bot.py
         env:
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          SMTP_HOST: smtp.gmail.com
+          SMTP_PORT: "587"
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NCBI_TOOL: pain-weekly-bot
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
+          # Optional:
+          # NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
