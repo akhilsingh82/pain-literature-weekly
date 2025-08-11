@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os, datetime, html, smtplib, ssl, requests, re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -13,6 +14,7 @@ from pathlib import Path
 # -------------------
 load_dotenv()
 
+# Use MEDLINE/NLM abbreviations with [ta]
 JOURNALS = [
     "Pain[ta]","Pain Physician[ta]","Pain Med[ta]","Reg Anesth Pain Med[ta]",
     "J Pain[ta]","Interv Pain Med[ta]","Cephalalgia[ta]","J Headache Pain[ta]",
@@ -29,28 +31,28 @@ KEYWORDS = [
     "\"Surgical Procedures, Operative\"","Therapeutics"
 ]
 
-ADD_HUMANS_FILTER = False
-INCLUDE_CONCLUSION_SNIPPET = True
+ADD_HUMANS_FILTER = False           # set True to bias toward human studies
+INCLUDE_CONCLUSION_SNIPPET = True   # show Conclusion / last lines from abstract (no AI)
 SNIPPET_MAX_WORDS = 70
 
-EMAIL_TO = os.environ["EMAIL_TO"]
+EMAIL_TO   = os.environ["EMAIL_TO"]
 EMAIL_FROM = os.environ["EMAIL_FROM"]
-SMTP_HOST = os.environ["SMTP_HOST"]
-SMTP_PORT = int(os.environ["SMTP_PORT"])
-SMTP_USER = os.environ["SMTP_USER"]
-SMTP_PASS = os.environ["SMTP_PASS"]
+SMTP_HOST  = os.environ["SMTP_HOST"]
+SMTP_PORT  = int(os.environ["SMTP_PORT"])
+SMTP_USER  = os.environ["SMTP_USER"]
+SMTP_PASS  = os.environ["SMTP_PASS"]
 
-NCBI_TOOL = os.environ.get("NCBI_TOOL", "pain-weekly-bot")
-NCBI_EMAIL = os.environ.get("NCBI_EMAIL", "")
-NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "")
+NCBI_TOOL   = os.environ.get("NCBI_TOOL", "pain-weekly-bot")
+NCBI_EMAIL  = os.environ.get("NCBI_EMAIL", "")
+NCBI_API_KEY= os.environ.get("NCBI_API_KEY", "")
 
-# NEW: where your GitHub Pages site is published, e.g. "https://USER.github.io/REPO"
+# Where GitHub Pages serves your static site, e.g. "https://USER.github.io/REPO"
 ABSTRACTS_BASE_URL = os.environ.get("ABSTRACTS_BASE_URL", "").rstrip("/")
 
 IST = ZoneInfo("Asia/Kolkata")
 
 # -------------------
-# HTTP Session with retries
+# HTTP session with retries
 # -------------------
 def make_session():
     s = requests.Session()
@@ -67,7 +69,7 @@ SESSION = make_session()
 # Query construction
 # -------------------
 def pubmed_query(journals, keywords, humans=False):
-    j = " OR ".join(journals)
+    j = " OR ".join(journals)                 # Journals already include [ta]
     k = " OR ".join(keywords) if keywords else ""
     core = f"({j})" if j else ""
     if k: core = f"{core} AND ({k})"
@@ -87,14 +89,16 @@ EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 def eutils_params(extra=None):
     p = {"tool": NCBI_TOOL, "email": NCBI_EMAIL}
-    if NCBI_API_KEY: p["api_key"] = NCBI_API_KEY
-    if extra: p.update(extra)
+    if NCBI_API_KEY:
+        p["api_key"] = NCBI_API_KEY
+    if extra:
+        p.update(extra)
     return p
 
 def esearch(term, mindate, maxdate):
     params = eutils_params({
-        "db": "pubmed","term": term,"retmode": "json","retmax": 300,
-        "datetype": "edat","mindate": mindate,"maxdate": maxdate
+        "db": "pubmed", "term": term, "retmode": "json", "retmax": 300,
+        "datetype": "edat", "mindate": mindate, "maxdate": maxdate
     })
     r = SESSION.get(f"{EUTILS}/esearch.fcgi", params=params, timeout=30)
     r.raise_for_status()
@@ -114,12 +118,17 @@ def esummary(pmids):
         sortdate = v.get("sortpubdate") or v.get("pubdate") or ""
         doi = ""
         for idv in v.get("articleids", []):
-            if idv.get("idtype") == "doi": doi = idv.get("value"); break
+            if idv.get("idtype") == "doi":
+                doi = idv.get("value"); break
         items.append({
-            "pmid": pid, "title": title, "journal": journal,
-            "date": sortdate, "doi": doi, "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/"
+            "pmid": pid,
+            "title": title,
+            "journal": journal,
+            "date": sortdate,
+            "doi": doi,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/"
         })
-    # dedupe by DOI else PMID
+    # Deduplicate by DOI else PMID
     dedup = {}
     for it in items:
         key = ("doi", (it["doi"] or "").lower()) if it["doi"] else ("pmid", it["pmid"])
@@ -129,6 +138,7 @@ def esummary(pmids):
     def parse_sortdate(s):
         try: return datetime.datetime.strptime(s, "%Y/%m/%d")
         except Exception: return datetime.datetime.min
+
     items.sort(key=lambda x: parse_sortdate(x["date"]), reverse=True)
     return items
 
@@ -136,6 +146,7 @@ def esummary(pmids):
 # Abstract / Conclusion extraction (no AI)
 # -------------------
 def efetch_abstract_map(pmids):
+    """Return { pmid: {"abstract": str|None, "conclusion": str|None} }"""
     out = {}
     if not pmids: return out
     BATCH = 100
@@ -184,12 +195,9 @@ def build_snippet(meta_map_entry):
     return (None, None)
 
 # -------------------
-# NEW: Abstracts page generator (for GitHub Pages)
+# Abstracts page (for GitHub Pages)
 # -------------------
 def build_abstracts_page(items, meta_map, mindate, maxdate, out_path="abstracts.html"):
-    """
-    Writes a static HTML with anchors per PMID so links can go to #PMID.
-    """
     rows = []
     for it in items:
         pmid = it["pmid"]
@@ -243,7 +251,6 @@ def build_html(items, mindate, maxdate, meta_map=None):
             label, snip = build_snippet(meta_map.get(it["pmid"]))
             if snip:
                 snippet_html = f'<div><strong>{html.escape(label)}:</strong> {html.escape(snip)}</div>'
-        # NEW: full abstract link
         full_abs_link = ""
         if ABSTRACTS_BASE_URL:
             full_abs_link = f' <a href="{ABSTRACTS_BASE_URL}/abstracts.html#{it["pmid"]}">Full abstract</a>'
@@ -277,4 +284,33 @@ def build_text(items, mindate, maxdate, meta_map=None):
 
 def send_email(html_body, text_body, subject):
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subjec
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(context=ctx); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+
+# -------------------
+# Main
+# -------------------
+if __name__ == "__main__":
+    today_ist = datetime.datetime.now(IST).date()
+    mindate, maxdate = last_7d_window_ist(today_ist)
+
+    term = pubmed_query(JOURNALS, KEYWORDS, humans=ADD_HUMANS_FILTER)
+    pmids = esearch(term, mindate, maxdate)
+    items = esummary(pmids)
+
+    meta_map = efetch_abstract_map([it["pmid"] for it in items]) if (INCLUDE_CONCLUSION_SNIPPET or ABSTRACTS_BASE_URL) else None
+
+    if ABSTRACTS_BASE_URL:
+        build_abstracts_page(items, meta_map or {}, mindate, maxdate, out_path="abstracts.html")
+
+    html_body = build_html(items, mindate, maxdate, meta_map)
+    text_body = build_text(items, mindate, maxdate, meta_map)
+    subject = f"Pain Literature Weekly — {mindate} to {maxdate}"
+
+    send_email(html_body, text_body, subject)
